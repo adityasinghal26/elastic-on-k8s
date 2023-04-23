@@ -1,1 +1,89 @@
 # YAML file to deploy elasticsearch in a Kubernetes Cluster using ECK
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: monitoring
+  namespace: default
+spec:
+  version: 8.6.0
+  http:
+    service:
+      metadata:
+        annotations:
+          oci.oraclecloud.com/load-balancer-type: lb
+          service.beta.kubernetes.io/oci-load-balancer-internal: "true"      # Flexible internal LB in OCI
+          service.beta.kubernetes.io/oci-load-balancer-shape: flexible
+          service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "100"
+          service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+      spec:
+        type: LoadBalancer  # Exposing service as LB
+    tls:
+      certificate:
+        secretName: mycompany-tls # Setting a TLS certificate 
+  nodeSets:
+  - name: master  # A cluster of 3 master nodes
+    config:
+      node.roles:
+      - master
+      - remote_cluster_client # required configuration for 8.x
+    count: 3
+    podTemplate:
+      spec:
+        containers:
+        - env:
+          - name: ES_JAVA_OPTS
+            value: -Xms14g -Xmx14g -Dlog4j2.formatMsgNoLookups=true
+          name: elasticsearch
+          resources:
+            limits:
+              memory: 20Gi
+            requests:
+              cpu: "2"
+              memory: 18Gi
+        nodeSelector:  # Node Selector to restrict pods in specific nodes
+          name: ESMon 
+          node.info/kubeletVersion: v1.24 # Selecting kubernetes 1.24 version
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 50Gi   # Persistent volume of 50 Gi attached for each Master node
+        storageClassName: oci-bv   # Default storage class for Oracle (block-volume)
+  - name: data  # A cluster of 2 data nodes
+    config:
+      node.roles:
+      - data
+      - ingest
+      - ml
+      - remote_cluster_client  # required configuration for 8.x
+    count: 2
+    podTemplate:
+      spec:
+        containers:
+        - env:
+          - name: ES_JAVA_OPTS
+            value: -Xms14G -Xmx14G -Dlog4j2.formatMsgNoLookups=true
+          name: elasticsearch
+          resources:
+            limits:
+              memory: 20Gi
+            requests:
+              cpu: "2"
+              memory: 18Gi
+        nodeSelector:  # Node Selector to restrict pods in specific nodes
+          name: ESMon
+          node.info/kubeletVersion: v1.24 # Selecting kubernetes 1.24 version
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2000Gi   # Persistent volume of 2 Ti for each Data node
+        storageClassName: oci-bv
