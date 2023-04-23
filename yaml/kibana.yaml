@@ -1,0 +1,42 @@
+# YAML file to deploy kibana in a Kubernetes cluster using ECK 
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: monitoring  # Preferably same name as Elasticsearch, easier for identification
+  namespace: default
+spec:
+  version: 8.6.0
+  count: 3
+  elasticsearchRef: # Direct reference to ES cluster, will create required configmaps, secrets, etc.
+    name: monitoring
+  http:
+    service:
+      metadata:
+        annotations:
+          oci.oraclecloud.com/load-balancer-type: lb
+          service.beta.kubernetes.io/oci-load-balancer-internal: "true"      # Flexible internal LB in OCI
+          service.beta.kubernetes.io/oci-load-balancer-shape: flexible
+          service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "100"
+          service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+      spec:
+        ports:
+        - name: https
+          port: 443         # Changing external port to 443, cleaner while exposing for Browser services
+          protocol: TCP
+          targetPort: 5601
+        type: LoadBalancer  # Exposing service as LB
+    tls:
+      certificate:
+        secretName: mycompany-tls # Setting a TLS certificate 
+  podTemplate:
+    spec:
+      containers:
+      - name: kibana
+        resources:
+          limits:
+            memory: 3Gi
+          requests:
+            memory: 2Gi
+      nodeSelector:  # Node Selector to restrict pods in specific nodes
+        name: ESMon
+        node.info/kubeletVersion: v1.24 # Selecting kubernetes 1.24 version
