@@ -1,0 +1,75 @@
+# YAML file to deploy Legacy APM server in a Kubernetes cluste using ECK
+apiVersion: apm.k8s.elastic.co/v1
+kind: ApmServer
+metadata:
+  name: monitoring   # Preferably same name as Elasticsearch, easier for identification
+  namespace: default
+spec:
+  version: 8.6.0
+  config:
+    apm-server:
+      # Configuring SSL settings for Kibana connection, else it will connect using default service name and fail with TLS error
+      kibana:
+        # Port needs to be mentioned as 443, else it will set default Kibana port (5601) 
+        host: https://kibana.mycompany.com:443
+        ssl.certificate_authorities:
+        - /usr/share/apm-server/config/kibana-certs/tls.crt
+        ssl.enabled: true
+      # Enabling Real User Monitoring with required CORS policy
+      rum:
+        allow_headers:
+        - POST
+        - OPTIONS
+        allow_origins:
+        - '*'
+        enabled: true
+    # Configuring SSL settings for Elasticsearch connection, else it will connect using default service name and fail with TLS error
+    output:
+      elasticsearch:
+        hosts:
+        - https://elasticsearch.mycompany.com:9200
+        ssl.certificate_authorities:
+        - /usr/share/apm-server/config/elasticsearch-certs/tls.crt
+        ssl.enabled: true
+        ssl.supported_protocols:
+        - TLSv1.0
+        - TLSv1.1
+        - TLSv1.2
+        ssl.verification_mode: full
+  # Configuring replicas for High Availability
+  count: 3
+  http:
+    service:
+      metadata:
+        annotations:
+          oci.oraclecloud.com/load-balancer-type: lb
+          service.beta.kubernetes.io/oci-load-balancer-internal: "true"      # Flexible internal LB in OCI
+          service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+          service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
+          service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "100"
+      spec:
+        type: LoadBalancer  # default is ClusterIP
+        ports:
+        - name: https
+          port: 443         # Changing external port to 443, cleaner while exposing for Browser/RUM services
+          protocol: TCP
+          targetPort: 8200
+    tls:                    # Disabling APM server side encryption, will not require any TLS certificate for connection
+      selfSignedCertificate:
+        disabled: true
+  elasticsearchRef:         # Direct reference to ES cluster, will create required configmaps, secrets, etc.
+    name: monitoring
+  kibanaRef:                # Direct reference to Kibana cluster, will create required configmaps, secrets, etc.
+    name: monitoring
+  podTemplate:
+    spec:
+      containers:
+      - name: apm-server
+        resources:
+          limits:
+            memory: 1Gi
+          requests:
+            memory: 512Mi
+      nodeSelector:         # Node Selector to restrict pods in specific nodes
+        name: ESMon
+        node.info/kubeletVersion: v1.24 # Selecting kubernetes 1.24 version
